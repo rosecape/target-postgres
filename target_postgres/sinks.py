@@ -170,6 +170,27 @@ class PostgresSink(SQLSink):
 
                 copy.write_row(processed_row)
 
+    def sanitize_null_text_characters(self, data):
+        """Sanitizes null characters by replacing \u0000 with \ufffd."""
+
+        def replace_null_character(d):
+            return d.replace("\u0000", "\ufffd")
+
+        if isinstance(data, str):
+            data = replace_null_character(data)
+
+        elif isinstance(data, dict):
+            for k in data:
+                if isinstance(data[k], str):
+                    data[k] = replace_null_character(data[k])
+
+        elif isinstance(data, list):
+            for i in range(0, len(data)):
+                if isinstance(data[i], str):
+                    data[i] = replace_null_character(data[i])
+
+        return data
+
     def bulk_insert_records(  # type: ignore[override]
         self,
         table: sa.Table,
@@ -204,7 +225,12 @@ class PostgresSink(SQLSink):
             unique_records: dict[tuple, dict] = {}  # pk tuple: values
             for record in records:
                 insert_record = {
-                    column.name: record.get(column.name) for column in columns
+                    column.name: (
+                        self.sanitize_null_text_characters(record.get(column.name))
+                        if self.connector.sanitize_null_text_characters
+                        else record.get(column.name)
+                    )
+                    for column in columns
                 }
                 # No need to check for a KeyError here because the SDK already
                 # guarantees that all key properties exist in the record.
@@ -214,7 +240,12 @@ class PostgresSink(SQLSink):
         else:
             for record in records:
                 insert_record = {
-                    column.name: record.get(column.name) for column in columns
+                    column.name: (
+                        self.sanitize_null_text_characters(record.get(column.name))
+                        if self.connector.sanitize_null_text_characters
+                        else record.get(column.name)
+                    )
+                    for column in columns
                 }
                 data.append(insert_record)
 
